@@ -85,17 +85,33 @@ class _ConsoleHTTPServer(ThreadingHTTPServer):
 class ConsoleServer:
     """控制台服务封装，负责在后台线程里起停 ``ThreadingHTTPServer``。"""
 
-    def __init__(self, platform: Platform, host: str = "127.0.0.1", port: int = 8080) -> None:
+    def __init__(
+        self,
+        platform: Platform,
+        host: str = "127.0.0.1",
+        port: int = 8080,
+        drill_service: object | None = None,
+    ) -> None:
         self._platform = platform
         self._host = host
         self._port = port
         self._server: _ConsoleHTTPServer | None = None
         self._thread: threading.Thread | None = None
-        self._api = Api(platform)
+        drill_api = None
+        if drill_service is not None:
+            from ..drill.api import DrillApi
+
+            drill_api = DrillApi(drill_service)
+        self._drill_service = drill_service
+        self._api = Api(platform, drill_api)
 
     @property
     def api(self) -> Api:
         return self._api
+
+    @property
+    def drill_service(self):
+        return self._drill_service
 
     @property
     def port(self) -> int:

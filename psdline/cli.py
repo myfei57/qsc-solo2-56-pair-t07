@@ -41,11 +41,28 @@ def _dump(payload: object) -> None:
 
 def _cmd_serve(args: argparse.Namespace) -> int:
     platform = _build(args)
-    server = ConsoleServer(platform, host=args.host, port=args.port)
+    drill_service = None
+    if getattr(args, "with_drill", False):
+        from .drill.cli import build_service
+
+        drill_service = build_service(platform, platform.config)
+        print(json.dumps({"drill_root": drill_service.root,
+                          "drill_enabled": True,
+                          "sessions": len(drill_service.list_sessions())},
+                         ensure_ascii=False))
+    server = ConsoleServer(platform, host=args.host, port=args.port,
+                           drill_service=drill_service)
     base_url = server.start()
     payload: dict = {"listening": base_url, "routes": server.api.routes()}
+    if drill_service is not None:
+        from .drill.api import DrillApi
+
+        payload["drill_routes"] = DrillApi(drill_service).routes()
     if args.probe:
-        payload["probe"] = probe_endpoints(base_url, list(DEFAULT_PROBE_PATHS))
+        probe_paths = list(DEFAULT_PROBE_PATHS)
+        if drill_service is not None:
+            probe_paths.append("/api/drill/scenarios")
+        payload["probe"] = probe_endpoints(base_url, probe_paths)
     _dump(payload)
     if args.duration > 0:
         try:
@@ -53,12 +70,16 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         except KeyboardInterrupt:  # pragma: no cover - 交互路径
             pass
         server.stop()
+        if drill_service is not None:
+            drill_service.shutdown()
         return 0
     try:
         while True:
             time.sleep(1.0)
     except KeyboardInterrupt:  # pragma: no cover - 交互路径
         server.stop()
+        if drill_service is not None:
+            drill_service.shutdown()
     return 0
 
 
@@ -198,6 +219,8 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--port", type=int, default=8080)
     serve.add_argument("--duration", type=float, default=0.0, help="运行多少秒后退出，0 表示常驻")
     serve.add_argument("--probe", action="store_true", help="启动后探测接口")
+    serve.add_argument("--with-drill", action="store_true",
+                       help="同时挂载应急演练服务（/api/drill，与现场隔离）")
     serve.set_defaults(func=_cmd_serve)
 
     demo = sub.add_parser("demo", help="跑一遍完整流程", parents=[common])
@@ -216,6 +239,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     reset = sub.add_parser("reset", help="清掉落盘的平台计数", parents=[common])
     reset.set_defaults(func=_cmd_reset)
+
+    from .drill.cli import register as register_drill
+
+    register_drill(sub)
     return parser
 
 
@@ -228,6 +255,20 @@ def main(argv: list[str] | None = None) -> int:
             reconfigure(encoding="utf-8", errors="backslashreplace")
     parser = build_parser()
     args = parser.parse_args(argv)
+    if getattr(args, "command", "") == "drill":
+        from .drill import cli as drill_cli
+        from .drill.errors import DrillError
+
+        platform = _build(args)
+        service = drill_cli.build_service(platform, platform.config)
+        try:
+            return int(drill_cli.run(args.drill_command, args, service))
+        except DrillError as error:
+            print(json.dumps({"error": type(error).__name__, **error.as_record()},
+                             ensure_ascii=False), file=sys.stderr)
+            return 2
+        finally:
+            service.shutdown()
     try:
         return int(args.func(args))
     except RailError as error:

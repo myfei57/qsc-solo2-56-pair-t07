@@ -85,6 +85,7 @@ class Platform:
         config: PlatformConfig | None = None,
         clock: Clock | None = None,
         unit: str | None = None,
+        store: JsonStore | None = None,
     ) -> None:
         self.config = (config or default_config()).validate()
         self.clock = clock or SystemClock()
@@ -92,7 +93,7 @@ class Platform:
         self.unit = unit or self.config.platform.unit
         self.ids = IdFactory("op")
 
-        store = JsonStore(self.config.storage_root)
+        store = store or JsonStore(self.config.storage_root)
         self.store = store
         self.metrics = StoreMetrics(store.root)
         self.audit = AuditLog(

@@ -41,10 +41,15 @@ def _as_float(body: dict, key: str, default: float) -> float:
 
 
 class Api:
-    """把 HTTP 请求翻译成平台调用。"""
+    """把 HTTP 请求翻译成平台调用。
 
-    def __init__(self, platform: Platform) -> None:
+    ``drill_api`` 可选地挂上演练接口；未挂时一切演练请求都 404，现场控制台
+    行为与原先完全一致。
+    """
+
+    def __init__(self, platform: Platform, drill_api: object | None = None) -> None:
         self._platform = platform
+        self._drill_api = drill_api
         self._router = Router()
         self._register()
 
@@ -100,6 +105,11 @@ class Api:
     def handle(self, method: str, path: str, query: dict, body: dict) -> tuple[int, dict]:
         """处理一次请求，返回状态码与响应体。"""
 
+        # /api/drill/* 先委托演练域：它有独立错误映射，绝不落进现场异常处理。
+        if path.startswith("/api/drill"):
+            if self._drill_api is None:
+                return 404, {"error": "drill_disabled", "path": path}
+            return self._drill_api.handle(method, path, query, body)
         matched = self._router.match(method, path)
         if matched is None:
             return 404, {"error": "not_found", "path": path}
