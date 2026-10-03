@@ -226,6 +226,18 @@ def main(argv: list[str] | None = None) -> int:
         reconfigure = getattr(stream, "reconfigure", None)
         if callable(reconfigure):
             reconfigure(encoding="utf-8", errors="backslashreplace")
+    if argv is None:
+        argv = sys.argv[1:]
+    if argv and argv[0] == "drill":
+        # 顶层对演练参数不做解析，全部转交给演练解析器（其 --live-root/--drill-root
+        # 等是演练专属选项，顶层 common 里没有）。
+        from .drill.cli import main as drill_main
+
+        try:
+            return drill_main(argv[1:])
+        except RailError as error:
+            print(json.dumps(error.as_record(), ensure_ascii=False), file=sys.stderr)
+            return 2
     parser = build_parser()
     args = parser.parse_args(argv)
     try:

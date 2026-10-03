@@ -42,6 +42,22 @@ HOOK_NAMES = {
     "main",
 }
 
+# 按全限定名登记的“安全哨兵”符号：它们存在的目的是被断言“不可达/零调用”，
+# 而不是被业务流程调用。典型是演练子系统里唯一的现场设备出口——演练门在 drill
+# 模式下永不调用它，跑完用 transmitted_count==0 证明一条现场动作都没发出去。
+# 因此它在生产调用图里没有来边是设计使然，不是死代码。新增条目必须写清理由。
+INTENTIONAL_SENTINELS = {
+    "psdline.drill.gate.FieldGateway.transmit": (
+        "唯一现场设备出口；演练模式刻意零调用，靠它计数为零证明隔离"
+    ),
+    "psdline.drill.gate.FieldGateway.transmitted_actions": (
+        "供巡检/断言列出“本应永远为空”的现场动作清单"
+    ),
+    "psdline.drill.service.DrillService.field_gateway": (
+        "暴露现场出口哨兵，供外部断言演练期间零触达"
+    ),
+}
+
 
 def _module_name(path: str, root: str) -> str:
     """把文件路径换算成 ``包.模块`` 名字。"""
@@ -165,6 +181,7 @@ def analyze(root: str) -> dict:
         for item in definitions
         if usages.get(item["name"], 0) == 0
         and item["name"] not in HOOK_NAMES
+        and f"{item['module']}.{item['qualname']}" not in INTENTIONAL_SENTINELS
         and not item["module"].endswith("__main__")
     ]
 
